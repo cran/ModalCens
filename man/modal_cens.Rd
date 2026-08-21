@@ -20,8 +20,8 @@ are detected.}
 same length as \code{nrow(data)}.}
 
 \item{family}{A character string naming the distribution family: \code{"gamma"},
-\code{"beta"}, \code{"weibull"}, or \code{"invgauss"}. Default is
-\code{"gamma"}.}
+\code{"beta"}, \code{"weibull"}, \code{"invgauss"}, \code{"lognormal"},
+\code{"loglogistic"}, or \code{"bisa"}. Default is \code{"gamma"}.}
 }
 \value{
 An object of class \code{"ModalCens"} containing:
@@ -58,6 +58,9 @@ The resulting mode-parameter mappings are:
   Beta       \tab logit \tab \eqn{\alpha = \phi+1.01},\ \eqn{\beta_p = (\alpha-1)/M_i - \alpha + 2} \cr
   Weibull    \tab log   \tab \eqn{k = \phi+1.01},\ \eqn{\lambda = M_i\,(k/(k-1))^{1/k}} \cr
   Inv. Gauss \tab log   \tab \eqn{\mu = [(M_i^{-2}) - 3/(\lambda M_i)]^{-1/2}},\ \eqn{\lambda > 3M_i} \cr
+  Log-Normal \tab log   \tab \eqn{\mu_{LN} = \log(M_i) + \sigma^2},\ \eqn{\sigma = \sqrt{\phi}} \cr
+  Log-Logistic \tab log \tab \eqn{k = \phi+1.01},\ \eqn{\alpha = M_i\,((k+1)/(k-1))^{1/k}} \cr
+  Birnbaum-Saunders \tab log \tab \eqn{\alpha_{bs} = \sqrt{\phi}},\ \eqn{\beta_{bs} = M_i / (\sqrt{1+\alpha_{bs}^2/4} - \alpha_{bs}/2)^2} \cr
 }
 
 The censored log-likelihood is
@@ -112,7 +115,8 @@ df_beta <- data.frame(y = pmin(ys, q85b), cens = cens_b,
 
 # Fit all families
 datasets <- list(gamma = df_orig, weibull = df_orig,
-                 invgauss = df_orig, beta = df_beta)
+                 invgauss = df_orig, lognormal = df_orig, beta = df_beta,
+                 loglogistic = df_orig, bisa = df_orig)
 models <- list(); aic_values <- list()
 
 for (f in names(datasets)) {
@@ -130,6 +134,13 @@ summary(fit)
 plot(fit)
 confint(fit)
 
+}
+\references{
+Yao, W., & Li, L. (2014). A new regression model: modal linear regression. \emph{Scandinavian Journal of Statistics}, 41(3), 656-671.
+
+Galarza, C. E., & Lachos, V. H. (2026). Parametric Modal Regression for Positive Distributions. \emph{arXiv preprint}, arXiv:2603.07099. <doi:10.48550/arXiv.2603.07099>
+
+Dunn, P. K., & Smyth, G. K. (1996). Randomized quantile residuals. \emph{Journal of Computational and Graphical Statistics}, 5(3), 236-244.
 }
 \author{
 Christian Galarza and Victor Lachos

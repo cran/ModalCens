@@ -1,13 +1,14 @@
 # ModalCens: Parametric Modal Regression with Right Censoring
 
 <!-- badges: start -->
-[![R-CMD-check](https://github.com/chedgala/ModalCens/actions/workflows/R-CMD-check.yaml/badge.svg)](https://github.com/chedgala/ModalCens/actions/workflows/R-CMD-check.yaml)
-[![License: GPL-3](https://img.shields.io/badge/License-GPL3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
+[![CRAN status](https://www.r-pkg.org/badges/version/ModalCens)](https://CRAN.R-project.org/package=ModalCens)
+[![R-CMD-check](https://img.shields.io/badge/R--CMD--check-passing-brightgreen)](https://github.com/chedgala/ModalCens)
+[![License: GPL-3](https://img.shields.io/badge/License-GPL3-blue.svg)](https://www.r-project.org/Licenses/GPL-3)
 <!-- badges: end -->
 
-**ModalCens** is an R package for fitting parametric modal regression models to continuous positive random variables within the exponential family. While traditional Generalized Linear Models (GLMs) target the conditional mean, **ModalCens** directly models the conditional mode $M_i$, providing a more robust and meaningful measure of central tendency for asymmetric and heavy-tailed distributions — particularly under right censoring.
+**ModalCens** is an R package for fitting parametric modal regression models to continuous positive random variables. While traditional Generalized Linear Models (GLMs) target the conditional mean, **ModalCens** directly models the conditional mode $M_i$, providing a more robust and meaningful measure of central tendency for asymmetric and heavy-tailed distributions — particularly under right censoring.
 
-The methodology is grounded in the framework of modal linear regression introduced by [Yao & Li (2014)](#references), with connections to recent advances surveyed in [Xiang, Yao & Cui (2026)](#references), extended here to parametric exponential family distributions under right censoring.
+The methodology is grounded in the framework of modal linear regression introduced by [Yao & Li (2014)](#references). It extends beyond traditional exponential family distributions to include highly flexible models such as the Log-Logistic and Birnbaum-Saunders distributions, as detailed in our preprint [Galarza & Lachos (2026)](#references).
 
 ---
 
@@ -26,7 +27,12 @@ The methodology is grounded in the framework of modal linear regression introduc
   | `"gamma"` | Log | $(0, \infty)$ | Skewed positive data |
   | `"beta"` | Logit | $(0, 1)$ | Proportions and rates |
   | `"weibull"` | Log | $(0, \infty)$ | Survival and reliability |
-  | `"invgauss"` | Log | $(0, \infty)$ | Highly skewed data ($\lambda > 3M_i$) |
+  | `"invgauss"` | Log | $(0, \infty)$ | Highly skewed data ($\lambda > 3M_i$) * |
+  | `"lognormal"` | Log | $(0, \infty)$ | Multiplicative / log-symmetric data |
+  | `"loglogistic"` | Log | $(0, \infty)$ | Non-monotonic hazard rates, heavy tails |
+  | `"bisa"` | Log | $(0, \infty)$ | Fatigue life, wear-out processes |
+
+  *\* **Note on Inverse Gaussian:** The condition $\lambda > 3M_i$ required to ensure a valid mode parameterization is a strong parametric restriction. This can make the Inverse Gaussian distribution less plausible in many routine modeling contexts compared to the other families available.*
 
 - **Asymptotic Inference:** Standard errors derived from the observed Fisher information matrix (inverse Hessian at the MLE).
 
@@ -44,66 +50,52 @@ devtools::install_github("chedgala/ModalCens")
 
 ---
 
-## Quick Start
+## Quick Start: Multi-Family Comparison
 
-This example uses the built-in `trees` dataset with simulated censoring **for illustration purposes only**. In practice, supply your own dataset with a real censoring indicator.
+Censoring is simulated for didactic purposes. Each family is fitted on its natural domain:
+long-tail families (Gamma, Weibull, InvGauss) on the original scale, and Beta on the $(0,1)$ scale.
 
 ```r
 library(ModalCens)
-
-# 1. Prepare data: scale Volume to (0, 1) for multi-family compatibility
 data(trees)
-y_scaled <- (trees$Volume - min(trees$Volume) + 1) /
-            (max(trees$Volume) - min(trees$Volume) + 2)
+set.seed(007)
 
-# 2. Simulate a censoring indicator (for illustration only)
-#    cens = 1: right-censored  |  cens = 0: fully observed
-set.seed(2026)
-cut_point <- quantile(y_scaled, 0.85)
-cens_ind  <- ifelse(y_scaled > cut_point, 1, 0)
-y_obs     <- pmin(y_scaled, cut_point)
+# Simulate 15% right-censoring (cens = 1: censored | cens = 0: observed)
+q85      <- quantile(trees$Volume, 0.85)
+cens_ind <- as.integer(trees$Volume > q85)
 
-df <- data.frame(
-  y      = y_obs,
-  cens   = cens_ind,
-  Girth  = trees$Girth,
-  Height = trees$Height
-)
+# (0,1) rescaling for Beta only
+ys     <- (trees$Volume - min(trees$Volume) + 1) / (max(trees$Volume) - min(trees$Volume) + 2)
+q85b   <- quantile(ys, 0.85)
+cens_b <- as.integer(ys > q85b)
 
-# 3. Fit a Gamma modal regression
-fit_gamma <- modal_cens(y ~ Girth + Height, data = df,
-                        cens = df$cens, family = "gamma")
+# Original scale for long-tail families; (0,1) scale for Beta
+df_orig <- data.frame(y = pmin(trees$Volume, q85), cens = cens_ind,
+                      Girth = trees$Girth, Height = trees$Height)
+df_beta <- data.frame(y = pmin(ys, q85b), cens = cens_b,
+                      Girth = trees$Girth, Height = trees$Height)
 
-# 4. Summary and diagnostics
-summary(fit_gamma)
-plot(fit_gamma)
-```
+# Fit all families
+datasets <- list(gamma = df_orig, weibull = df_orig,
+                 invgauss = df_orig, lognormal = df_orig, beta = df_beta,
+                 loglogistic = df_orig, bisa = df_orig)
+models <- list(); aic_values <- list()
 
----
-
-## Multi-Family Comparison
-
-```r
-families   <- c("gamma", "beta", "weibull", "invgauss")
-models     <- list()
-aic_values <- numeric()
-
-for (f in families) {
-  mod <- try(
-    modal_cens(y ~ Girth + Height, data = df, cens = df$cens, family = f),
-    silent = TRUE
-  )
-  if (!inherits(mod, "try-error")) {
-    models[[f]]     <- mod
-    aic_values[[f]] <- AIC(mod)
-  }
+for (f in names(datasets)) {
+  mod <- try(modal_cens(y ~ Girth + Height, data = datasets[[f]],
+                        cens = datasets[[f]]$cens, family = f), silent = TRUE)
+  if (!inherits(mod, "try-error")) { models[[f]] <- mod; aic_values[[f]] <- AIC(mod) }
 }
 
-best_family <- names(which.min(aic_values))
-cat("Best model:", best_family, "| AIC =", min(aic_values), "\n")
+# Select best model by AIC
+best <- names(which.min(aic_values))
+cat("Best family:", best, "| AIC =", round(aic_values[[best]], 3), "\n")
 
-summary(models[[best_family]])
-plot(models[[best_family]])
+# Full analysis of the winner
+fit <- models[[best]]
+summary(fit)
+plot(fit)
+confint(fit)
 ```
 
 ---
@@ -114,7 +106,9 @@ plot(models[[best_family]])
 
 The package reparameterizes exponential family densities of the form
 
-$$f(y_i \mid \theta_i, \phi) = \exp\!\left\{\frac{y_i \theta_i - b(\theta_i)}{a(\phi)} + c(y_i, \phi)\right\}$$
+$$
+f(y_i \mid \theta_i, \phi) = \exp\left\lbrace\frac{y_i \theta_i - b(\theta_i)}{a(\phi)} + c(y_i, \phi)\right\rbrace
+$$
 
 by solving the first-order condition $\left.\dfrac{\partial \log f(y_i)}{\partial y_i}\right|_{y_i = M_i} = 0$, which expresses the canonical parameter $\theta_i$ as an explicit function of the conditional mode $M_i$ and the dispersion $\phi$. This yields the mode-link models:
 
@@ -124,6 +118,9 @@ by solving the first-order condition $\left.\dfrac{\partial \log f(y_i)}{\partia
 | Beta | $\alpha = \phi + 1.01$, $\;\beta_p = (\alpha - 1)/M_i - \alpha + 2$ |
 | Weibull | $k = \phi + 1.01$, $\;\lambda = M_i \cdot (k/(k-1))^{1/k}$ |
 | Inv. Gaussian | $\mu = \bigl[M_i^{-2} - 3/(\lambda M_i)\bigr]^{-1/2}$, $\;\lambda > 3M_i$ |
+| Log-Normal | $\mu_{LN} = \log(M_i) + \sigma^2$, $\;\sigma = \sqrt{\phi}$ |
+| Log-Logistic | $k = \phi + 1.01$, $\;\alpha = M_i \cdot \bigl((k+1)/(k-1)\bigr)^{1/k}$ |
+| Birnbaum-Saunders | $\alpha_{bs} = \sqrt{\phi}$, $\;\beta_{bs} = M_i / \bigl(\sqrt{1+\alpha_{bs}^2/4} - \alpha_{bs}/2\bigr)^2$ |
 
 ### Censored Log-Likelihood
 
@@ -150,7 +147,7 @@ modal_cens(formula, data, cens, family = "gamma")
 | `formula` | A formula object, e.g., `y ~ x1 + x2` |
 | `data` | A data frame with no missing values |
 | `cens` | Binary vector: `1` = right-censored, `0` = fully observed. Must have no `NA`s. |
-| `family` | One of `"gamma"`, `"beta"`, `"weibull"`, `"invgauss"` |
+| `family` | One of `"gamma"`, `"beta"`, `"weibull"`, `"invgauss"`, `"lognormal"`, `"loglogistic"`, `"bisa"` |
 
 The function stops with an error if any `NA` is detected in `cens` or in the variables referenced by `formula`. No imputation is performed.
 
@@ -160,8 +157,8 @@ The function returns an object of class `"ModalCens"` with methods for `summary(
 
 ## Authors
 
-- **Christian E. Galarza** — ESPOL, Ecuador · [chedgala@espol.edu.ec](mailto:chedgala@espol.edu.ec)
-- **Víctor H. Lachos** — University of Connecticut · [hlachos@uconn.edu](mailto:hlachos@uconn.edu)
+- **Christian E. Galarza** — Escuela Superior Politécnica del Litoral, Ecuador · [chedgala@espol.edu.ec](mailto:chedgala@espol.edu.ec)
+- **Víctor H. Lachos** — University of Connecticut, USA · [hlachos@uconn.edu](mailto:hlachos@uconn.edu)
 
 ---
 
@@ -169,6 +166,6 @@ The function returns an object of class `"ModalCens"` with methods for `summary(
 
 - **Yao, W. & Li, L. (2014).** A new regression model: modal linear regression. *Scandinavian Journal of Statistics*, 41(3), 656–671. <https://doi.org/10.1111/sjos.12054>
 
-- **Xiang, S., Yao, W. & Cui, X. (2026).** Advances in modal regression: from theoretical foundations to practical implementations. *Wiley Interdisciplinary Reviews: Computational Statistics*, e70014. <https://doi.org/10.1002/wics.70014>
+- **Galarza, C. E., & Lachos, V. H. (2026).** Parametric Modal Regression for Positive Distributions. *arXiv preprint*, arXiv:2603.07099. <doi:10.48550/arXiv.2603.07099>
 
 - **Dunn, P. K. & Smyth, G. K. (1996).** Randomized quantile residuals. *Journal of Computational and Graphical Statistics*, 5(3), 236–244.
