@@ -4,7 +4,7 @@
 \alias{modal_cens}
 \title{Modal Regression Fit with Right Censoring}
 \usage{
-modal_cens(formula, data, cens, family = "gamma")
+modal_cens(formula, data, cens, family = "gamma", nu = 4)
 }
 \arguments{
 \item{formula}{An object of class "formula" (e.g., y ~ x1 + x2).}
@@ -21,7 +21,13 @@ same length as \code{nrow(data)}.}
 
 \item{family}{A character string naming the distribution family: \code{"gamma"},
 \code{"beta"}, \code{"weibull"}, \code{"invgauss"}, \code{"lognormal"},
-\code{"loglogistic"}, or \code{"bisa"}. Default is \code{"gamma"}.}
+\code{"loglogistic"}, \code{"bisa"}, or \code{"logt"}. Default is
+\code{"gamma"}.}
+
+\item{nu}{Degrees of freedom of the Log-t family (\code{family = "logt"}),
+a single positive number treated as known. Default is \code{4}. It is
+ignored by the other families. Different values can be compared through
+\code{logLik()} or \code{AIC()}.}
 }
 \value{
 An object of class \code{"ModalCens"} containing:
@@ -36,6 +42,8 @@ An object of class \code{"ModalCens"} containing:
   \item{n}{Number of observations used in fitting.}
   \item{n_par}{Total number of estimated parameters.}
   \item{family}{Distribution family used.}
+  \item{nu}{Degrees of freedom used by the Log-t family (\code{NA} for the
+    other families).}
   \item{cens}{Censoring indicator vector as supplied.}
   \item{call}{The matched call.}
   \item{terms}{The model terms object.}
@@ -61,7 +69,18 @@ The resulting mode-parameter mappings are:
   Log-Normal \tab log   \tab \eqn{\mu_{LN} = \log(M_i) + \sigma^2},\ \eqn{\sigma = \sqrt{\phi}} \cr
   Log-Logistic \tab log \tab \eqn{k = \phi+1.01},\ \eqn{\alpha = M_i\,((k+1)/(k-1))^{1/k}} \cr
   Birnbaum-Saunders \tab log \tab \eqn{\alpha_{bs} = \sqrt{\phi}},\ \eqn{\beta_{bs} = M_i / (\sqrt{1+\alpha_{bs}^2/4} - \alpha_{bs}/2)^2} \cr
+  Log-t      \tab log   \tab \eqn{\sigma = \sqrt{\phi}},\ \eqn{\mu = \log(M_i) - \sigma z^\star},\ \eqn{\phi < (\nu+1)^2/(4\nu)} \cr
 }
+
+For the Log-t family, \eqn{\log Y_i = \mu_i + \sigma Z_i} with
+\eqn{Z_i \sim t_\nu} and fixed degrees of freedom \eqn{\nu} (argument
+\code{nu}), and
+\eqn{z^\star = [-(\nu+1) + \sqrt{(\nu+1)^2 - 4\nu\sigma^2}]/(2\sigma)}.
+The restriction \eqn{\phi < (\nu+1)^2/(4\nu)} guarantees that the density
+has an interior mode, which is its unique local maximum on
+\eqn{(0,\infty)}; as for every log-t law, the density also diverges as
+\eqn{y \to 0}. As \eqn{\nu \to \infty} the family reduces to the
+Log-Normal family with the same \eqn{\phi}.
 
 The censored log-likelihood is
 \deqn{\ell(\boldsymbol{\gamma}, \phi) =
@@ -116,7 +135,7 @@ df_beta <- data.frame(y = pmin(ys, q85b), cens = cens_b,
 # Fit all families
 datasets <- list(gamma = df_orig, weibull = df_orig,
                  invgauss = df_orig, lognormal = df_orig, beta = df_beta,
-                 loglogistic = df_orig, bisa = df_orig)
+                 loglogistic = df_orig, bisa = df_orig, logt = df_orig)
 models <- list(); aic_values <- list()
 
 for (f in names(datasets)) {

@@ -25,6 +25,9 @@ summary.ModalCens <- function(object, ...) {
 
   print(coef_mat)
   cat("\nDispersion Parameter (phi):", round(object$phi, 5), "\n")
+  if (identical(object$family, "logt")) {
+    cat("Degrees of freedom (nu, fixed):", object$nu, "\n")
+  }
   cat("---\n")
 
   # Cálculo de métricas inferiores

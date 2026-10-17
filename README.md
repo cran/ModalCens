@@ -8,7 +8,7 @@
 
 **ModalCens** is an R package for fitting parametric modal regression models to continuous positive random variables. While traditional Generalized Linear Models (GLMs) target the conditional mean, **ModalCens** directly models the conditional mode $M_i$, providing a more robust and meaningful measure of central tendency for asymmetric and heavy-tailed distributions — particularly under right censoring.
 
-The methodology is grounded in the framework of modal linear regression introduced by [Yao & Li (2014)](#references). It extends beyond traditional exponential family distributions to include highly flexible models such as the Log-Logistic and Birnbaum-Saunders distributions, as detailed in our preprint [Galarza & Lachos (2026)](#references).
+The methodology is grounded in the framework of modal linear regression introduced by [Yao & Li (2014)](#references). It extends beyond traditional exponential family distributions to include highly flexible models such as the Log-Logistic, Birnbaum-Saunders and heavy-tailed Log-t distributions, as detailed in our preprint [Galarza & Lachos (2026)](#references).
 
 ---
 
@@ -31,8 +31,11 @@ The methodology is grounded in the framework of modal linear regression introduc
   | `"lognormal"` | Log | $(0, \infty)$ | Multiplicative / log-symmetric data |
   | `"loglogistic"` | Log | $(0, \infty)$ | Non-monotonic hazard rates, heavy tails |
   | `"bisa"` | Log | $(0, \infty)$ | Fatigue life, wear-out processes |
+  | `"logt"` | Log | $(0, \infty)$ | Heavy tails on the log scale, outlying lifetimes ($\phi < (\nu+1)^2/4\nu$) † |
 
   *\* **Note on Inverse Gaussian:** The condition $\lambda > 3M_i$ required to ensure a valid mode parameterization is a strong parametric restriction. This can make the Inverse Gaussian distribution less plausible in many routine modeling contexts compared to the other families available.*
+
+  *† **Note on Log-t:** $\log Y_i$ follows a Student-t distribution with location $\mu_i$, scale $\sigma = \sqrt{\phi}$ and **fixed** degrees of freedom $\nu$ (argument `nu`, default `4`), as in `survival::survreg(dist = "t")`. The restriction $\phi < (\nu+1)^2/(4\nu)$ guarantees an interior mode, which is the unique local maximum of the density (as for every log-t law, the density also diverges as $y \to 0$). As $\nu \to \infty$ the family reduces to `"lognormal"` with the same $\phi$. Different values of $\nu$ can be compared through `logLik()` or `AIC()`.*
 
 - **Asymptotic Inference:** Standard errors derived from the observed Fisher information matrix (inverse Hessian at the MLE).
 
@@ -43,6 +46,9 @@ The methodology is grounded in the framework of modal linear regression introduc
 ## Installation
 
 ```r
+# Stable version from CRAN
+install.packages("ModalCens")
+
 # Development version from GitHub
 # install.packages("devtools")
 devtools::install_github("chedgala/ModalCens")
@@ -78,7 +84,7 @@ df_beta <- data.frame(y = pmin(ys, q85b), cens = cens_b,
 # Fit all families
 datasets <- list(gamma = df_orig, weibull = df_orig,
                  invgauss = df_orig, lognormal = df_orig, beta = df_beta,
-                 loglogistic = df_orig, bisa = df_orig)
+                 loglogistic = df_orig, bisa = df_orig, logt = df_orig)
 models <- list(); aic_values <- list()
 
 for (f in names(datasets)) {
@@ -121,6 +127,7 @@ by solving the first-order condition $\left.\dfrac{\partial \log f(y_i)}{\partia
 | Log-Normal | $\mu_{LN} = \log(M_i) + \sigma^2$, $\;\sigma = \sqrt{\phi}$ |
 | Log-Logistic | $k = \phi + 1.01$, $\;\alpha = M_i \cdot \bigl((k+1)/(k-1)\bigr)^{1/k}$ |
 | Birnbaum-Saunders | $\alpha_{bs} = \sqrt{\phi}$, $\;\beta_{bs} = M_i / \bigl(\sqrt{1+\alpha_{bs}^2/4} - \alpha_{bs}/2\bigr)^2$ |
+| Log-t | $\sigma = \sqrt{\phi}$, $\;\mu = \log(M_i) - \sigma z^\star$, $\;z^\star = \bigl[-(\nu+1) + \sqrt{(\nu+1)^2 - 4\nu\sigma^2}\bigr]/(2\sigma)$ |
 
 ### Censored Log-Likelihood
 
@@ -139,7 +146,7 @@ For each observation, define $u_i = F(y_i \mid \hat{M}_i, \hat{\phi})$. For righ
 ## Main Function
 
 ```r
-modal_cens(formula, data, cens, family = "gamma")
+modal_cens(formula, data, cens, family = "gamma", nu = 4)
 ```
 
 | Argument | Description |
@@ -147,11 +154,29 @@ modal_cens(formula, data, cens, family = "gamma")
 | `formula` | A formula object, e.g., `y ~ x1 + x2` |
 | `data` | A data frame with no missing values |
 | `cens` | Binary vector: `1` = right-censored, `0` = fully observed. Must have no `NA`s. |
-| `family` | One of `"gamma"`, `"beta"`, `"weibull"`, `"invgauss"`, `"lognormal"`, `"loglogistic"`, `"bisa"` |
+| `family` | One of `"gamma"`, `"beta"`, `"weibull"`, `"invgauss"`, `"lognormal"`, `"loglogistic"`, `"bisa"`, `"logt"` |
+| `nu` | Degrees of freedom of the `"logt"` family, treated as known (default `4`). Ignored by the other families. |
 
 The function stops with an error if any `NA` is detected in `cens` or in the variables referenced by `formula`. No imputation is performed.
 
-The function returns an object of class `"ModalCens"` with methods for `summary()`, `plot()`, `AIC()`, `BIC()`, `logLik()`, `coef()`, `vcov()`, and `residuals()`.
+The function returns an object of class `"ModalCens"` with methods for `summary()`, `plot()`, `confint()`, `AIC()`, `BIC()`, `logLik()`, `coef()`, `vcov()`, and `residuals()`.
+
+### Example: Log-t family
+
+```r
+lung2 <- na.omit(survival::lung[, c("time", "status", "age", "sex")])
+lung2$cens <- as.integer(lung2$status == 1)   # 1 = censored (alive)
+
+fit_t <- modal_cens(time ~ age + sex, data = lung2, cens = lung2$cens,
+                    family = "logt", nu = 4)
+summary(fit_t)
+plot(fit_t)
+
+# Compare several degrees of freedom by AIC
+sapply(c(2, 4, 8, 16), function(v)
+  AIC(modal_cens(time ~ age + sex, data = lung2, cens = lung2$cens,
+                 family = "logt", nu = v)))
+```
 
 ---
 
